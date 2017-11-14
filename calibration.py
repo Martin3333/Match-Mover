@@ -65,8 +65,8 @@ ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.sh
 
 
 
-img1 = cv2.imread('scene1.jpg',0)  #queryimage # left image
-img2 = cv2.imread('scene2.jpg',0) #trainimage # right image
+img1 = cv2.imread('scene1.jpg',1)  #queryimage # left image
+img2 = cv2.imread('scene2.jpg',1) #trainimage # right image
 
 
 detector = cv2.xfeatures2d.SIFT_create()
@@ -117,7 +117,7 @@ F, mask = cv2.findFundamentalMat(pts1,pts2,cv2.FM_LMEDS)
 pts1 = pts1[mask.ravel()==1]
 pts2 = pts2[mask.ravel()==1]
 
-
+mtx = np.array((5220.0,0.0,2064.5,0.0,5220.0,1598.5,0.0,0.0,1.0)).reshape((3,3))
 #TODO: compare different computations for E
 F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.RANSAC)
 E = np.dot(np.dot(np.transpose(mtx), F), mtx)
@@ -143,15 +143,21 @@ points3d.append((-1.0,1.0, -1.0))
 points3d.append((1.0, -1.0, -1.0))
 points3d.append((-1.0 , -1.0, -1.0))
 
-#move it around
-points3d = scale3DPoints(points3d, 3.0)
-points3d = translate3DPoints(points3d, 2.0, 2.0, 20.0)
+XYZ_Axis = [(10000.0, 0.0, 0.0), (0.0, 10000.0, 0.0), (0.0, 0.0, 10000.0), (0.0, 0.0, 0.0)]
 
+print(T)
+print(points3d)
+#move it around
+points3d = scale3DPoints(points3d, 100.0)
+points3d = translate3DPoints(points3d, 0.0, 0.0, 0.0)
+
+T[2] -= 2000.0
 #project into images, first one with 0 vectors for R and T
-points1,_ = cv2.projectPoints(np.array(points3d), (0,0,0), (0,0,0), mtx, (0,0,0,0))
+points1,_ = cv2.projectPoints(np.array(points3d), (0,0,0), (0,0,-2000.0), mtx, (0,0,0,0))
 points2,_ = cv2.projectPoints(np.array(points3d), R, T, mtx, (0,0,0,0))
 
-
+axis1,_ = cv2.projectPoints(np.array(XYZ_Axis), (0,0,0), (0,0,-2000.0), mtx, (0,0,0,0))
+axis2,_ = cv2.projectPoints(np.array(XYZ_Axis), R, T, mtx, (0,0,0,0))
 #connect all points with lines
 color = (255,255,255)
 points1 = [(np.int32(p[0][0]), np.int32(p[0][1])) for p in points1]
@@ -160,11 +166,25 @@ points2 = [(np.int32(p[0][0]), np.int32(p[0][1])) for p in points2]
 for p1 in points1:
     
     for p2 in points1:
-        cv2.line(img1,p1, p2, (255,255,255), 5)
+        cv2.line(img1,p1, p2, color, 5)
 
 for p1 in points2:
     for p2 in points2:
-        cv2.line(img2,p1, p2, (255,255,255), 5)
+        cv2.line(img2,p1, p2, color, 5)
+
+
+
+axis1 = [(np.int32(p[0][0]), np.int32(p[0][1])) for p in axis1]
+axis2 = [(np.int32(p[0][0]), np.int32(p[0][1])) for p in axis2]
+
+
+cv2.line(img1, axis1[3], axis1[0], (255,0,0), 10)
+cv2.line(img1, axis1[3], axis1[1], (0,255,0), 10)
+cv2.line(img1, axis1[3], axis1[2], (0,0,255), 10)
+cv2.line(img2, axis2[3], axis2[0], (255,0,0), 10)
+cv2.line(img2, axis2[3], axis2[1], (0,255,0), 10)
+cv2.line(img2, axis2[3], axis2[2], (0,0,255), 10)
+
 
 #write images
 cv2.imwrite('1.jpg', img1)
