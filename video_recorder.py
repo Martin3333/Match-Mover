@@ -32,16 +32,24 @@ vout = cv2.VideoWriter(result, fourcc, fps, (int(width), int(height)))
 if vcap is None:
     quit()
 
+
+numFrames = 0
+index = 0
 while vcap.isOpened():
     ret, frame = vcap.read()
-
     if ret:
-        color = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        color = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+        if numFrames%20 == 0:
+
+            cv2.imwrite('videoframes/'+str(index)+'.jpg', color)
+            index += 1
 
         cv2.circle(color, (150, 150), 60, (0, 0, 255), 12)
 
         cv2.imshow(WINDOW_NAME, color)
         vout.write(color)
+        numFrames += 1
     else:
         break
 
@@ -55,6 +63,7 @@ while vcap.isOpened():
     if cv2.getWindowProperty(WINDOW_NAME, 1) == -1:
         break
 
+print(numFrames)
 vcap.release()
 vout.release()
 cv2.destroyAllWindows()
