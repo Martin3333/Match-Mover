@@ -66,3 +66,13 @@ class Camera(object):
         img = cv2.imread(os.path.join(path, "0.jpg"), 0)
         ret, mtx, dist, r_vectors, t_vectors = cv2.calibrateCamera(obj_points, img_points, img.shape[::-1], None, None)
         return mtx
+
+    def calcCameraPose(pts1, pts2, K):
+        # Compute F
+        F, mask = cv2.findFundamentalMat(pts1,pts2,cv2.RANSAC)
+        # Compute E
+        E = np.dot(np.dot(np.transpose(K), F), K)
+        # Get R and T
+        _, R,T, mask= cv2.recoverPose(E, pts1, pts2, K)
+
+        return R,T

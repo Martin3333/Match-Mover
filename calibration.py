@@ -5,6 +5,8 @@ import pickle
 import cv2
 import glob
 import os
+from sources.object3d import Object3D as obj3D
+#import sources.object3d
 from matplotlib import pyplot as plt
 
 
@@ -14,10 +16,10 @@ def translate3DPoints(points,x,y,z):
         newPoints.append((p[0]+x, p[1]+y, p[2]+z))
     return newPoints
 
-def scale3DPoints(points, scale):
+def scale3DPoints(points, scaleX, scaleY, scaleZ):
     newPoints = []
     for p in points:
-        newPoints.append((p[0]*scale, p[1]*scale, p[2]*scale))
+        newPoints.append((p[0]*scaleY, p[1]*scaleX, p[2]*scaleZ))
     return newPoints
 
 
@@ -59,7 +61,7 @@ def calibrate(maxIndex, path='videoframes/'):
 
 
 
-def render(index1, index2, K_mtx, path='videoframes/', outPath='out/'):
+def render(index1, index2, K_mtx, path='videoframes/', outPath='out/', drawMatches=False):
     # Load images
     img1 = cv2.imread(path + str(index1)+'.jpg' ,1)
     img2 = cv2.imread(path + str(index2)+'.jpg' ,1)
@@ -83,20 +85,70 @@ def render(index1, index2, K_mtx, path='videoframes/', outPath='out/'):
     pts1 = []
     pts2 = []
 
-    # ratio test as per Lowe's paper
-    for i,(m,n) in enumerate(matches):
-        if m.distance < 0.8*n.distance:
-            pts2.append(kp2[m.trainIdx].pt)
-            pts1.append(kp1[m.queryIdx].pt)
+    if drawMatches: matchesMask = [[0,0] for i in range(len(matches))]
+
+    # # ratio test as per Lowe's paper
+    # for i,(m,n) in enumerate(matches):
+    #     #if m.distance < 0.7*n.distance:
+    #         if drawMatches: matchesMask[i]=[1,0]
+    #         pts2.append(kp2[m.trainIdx].pt)
+    #         pts1.append(kp1[m.queryIdx].pt)
+
+    pixDiff = 100
+
+    for k1 in kp1:
+        for k2 in kp2:
+            if abs(k1.pt[0]-k2.pt[0])<pixDiff and abs(k1.pt[1]-k2.pt[1])<pixDiff:
+                pts1.append(k1.pt)
+                pts2.append(k2.pt)
+
+    if drawMatches:
+        draw_params = dict(matchColor = (0,255,0),
+                           singlePointColor = (255,0,0),
+                           matchesMask = matchesMask,
+                           flags = 0)
+        img3 = cv2.drawMatchesKnn(img1,kp1,img2,kp2,matches,None,**draw_params)
+        plt.imshow(img3,),plt.show()
+
+
+
+    ##  manual point correspondences images 0,8
+    pts1 = [(477.0, 523.0),
+            (1132.0, 447.0),
+            (615.0, 119.0),
+            (1705.0, 365.0),
+            (87.0, 436.0),
+            (458.0, 286.0),
+            (1217.0, 120.0),
+            (1047.0, 146.0),
+            (823.0, 184.0)]
+
+
+    pts2 = [(469.0, 344.0),
+            (1062.0, 461.0),
+            (730.0, 26.0),
+            (1580.0, 541.0),
+            (158.0, 170.0),
+            (485.0, 130.0),
+            (1564.0, 219.0),
+            (1135.0, 156.0),
+            (941.0, 140.0)]
+            
+
 
     pts1 = np.int32(pts1)
     pts2 = np.int32(pts2)
 
     # Compute F
-    F, mask = cv2.findFundamentalMat(pts1,pts2,cv2.FM_RANSAC)
+    F, mask = cv2.findFundamentalMat(pts1,pts2,cv2.RANSAC)
     # pts1 = pts1[mask.ravel()==1]
     # pts2 = pts2[mask.ravel()==1]
-    # F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.RANSAC)
+    # F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.FM_RANSAC)
+
+    # #print(pts1.shape())
+    # pts1, pts2 = cv2.correctMatches(F, np.reshape(pts1, (1,len(pts1), 2)), np.reshape(pts2, (1,len(pts2), 2)))
+
+    # F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.FM_RANSAC)
 
     # Compute E
     E = np.dot(np.dot(np.transpose(K_mtx), F), K_mtx)
@@ -107,72 +159,66 @@ def render(index1, index2, K_mtx, path='videoframes/', outPath='out/'):
 
     # R=R1
     # print(T)
+    # imgpoints = []
+    # criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+    # ret, corners1 = cv2.findChessboardCorners(img1, (5,7),None)
 
-    #Simple Cube in 3D
-    points3d = []
-    points3d.append((1.0, 1.0, 1.0))
-    points3d.append((1.0, -1.0, 1.0))
-    points3d.append((-1.0, 1.0, 1.0))
-    points3d.append((-1.0, -1.0, 1.0))
-    points3d.append((1.0, 1.0, -1.0))
-    points3d.append((-1.0,1.0, -1.0))
-    points3d.append((1.0, -1.0, -1.0))
-    points3d.append((-1.0 , -1.0, -1.0))
+    #     # If found, add object points, image points (after refining them)
+    #     if ret == True:
+    #         cv2.cornerSubPix(img1,corners1,(11,11),(-1,-1),criteria)
+    #         imgpoints.append(corners1)
 
-    XYZ_Axis = [(10000.0, 0.0, 0.0), (0.0, 10000.0, 0.0), (0.0, 0.0, 10000.0), (0.0, 0.0, 0.0)]
+    # ret, corners2 = cv2.findChessboardCorners(img2, (5,7),None)
+
+    #     # If found, add object points, image points (after refining them)
+    #     if ret == True:
+    #         cv2.cornerSubPix(img2,corners2,(11,11),(-1,-1),criteria)
+    #         imgpoints.append(corners2)
+
+    # cv2.triangulatePoints()
 
 
-    #move it around
-    points3d = scale3DPoints(points3d, 10.0)
-    points3d = translate3DPoints(points3d, 0.0, 0.0, 0.0)
+    #XYZ_Axis = [(10000.0, 0.0, 0.0), (0.0, 10000.0, 0.0), (0.0, 0.0, -1000.0), (0.0, 0.0, 0.0)]
 
     T[2] -= 2000.0
     #project into images, first one with 0 vectors for R and T
-    points1,_ = cv2.projectPoints(np.array(points3d), (0,0,0), (0,0,-2000.0), K_mtx, (0,0,0,0))
-    points2,_ = cv2.projectPoints(np.array(points3d), R, T, K_mtx, (0,0,0,0))
+    img1 = obj3D.render(img1, (0,0,0), (0.0, 0.0, -2000.0), K_mtx)
+    img2 = obj3D.render(img2, R, T, K_mtx)
+
+
+    # axis1,_ = cv2.projectPoints(np.array(XYZ_Axis), (0,0,0), (0,0,-2000.0), K_mtx, (0,0,0,0))
+    # axis2,_ = cv2.projectPoints(np.array(XYZ_Axis), R, T, K_mtx, (0,0,0,0))
 
 
 
-    axis1,_ = cv2.projectPoints(np.array(XYZ_Axis), (0,0,0), (0,0,-2000.0), K_mtx, (0,0,0,0))
-    axis2,_ = cv2.projectPoints(np.array(XYZ_Axis), R, T, K_mtx, (0,0,0,0))
-    #connect all points with lines
-    color = (255,255,255)
-    points1 = [(np.int32(p[0][0]), np.int32(p[0][1])) for p in points1]
-    points2 = [(np.int32(p[0][0]), np.int32(p[0][1])) for p in points2]
-
-    for p1 in points1:
-        
-        for p2 in points1:
-            cv2.line(img1,p1, p2, color, 5)
-
-    for p1 in points2:
-        for p2 in points2:
-            cv2.line(img2,p1, p2, color, 5)
+    # axis1 = [(np.int32(p[0][0]), np.int32(p[0][1])) for p in axis1]
+    # axis2 = [(np.int32(p[0][0]), np.int32(p[0][1])) for p in axis2]
 
 
 
-    axis1 = [(np.int32(p[0][0]), np.int32(p[0][1])) for p in axis1]
-    axis2 = [(np.int32(p[0][0]), np.int32(p[0][1])) for p in axis2]
-
-
-    cv2.line(img1, axis1[3], axis1[0], (255,0,0), 10)
-    cv2.line(img1, axis1[3], axis1[1], (0,255,0), 10)
-    cv2.line(img1, axis1[3], axis1[2], (0,0,255), 10)
-    cv2.line(img2, axis2[3], axis2[0], (255,0,0), 10)
-    cv2.line(img2, axis2[3], axis2[1], (0,255,0), 10)
-    cv2.line(img2, axis2[3], axis2[2], (0,0,255), 10)
+    # cv2.line(img1, axis1[3], axis1[0], (255,0,0), 10)
+    # cv2.line(img1, axis1[3], axis1[1], (0,255,0), 10)
+    # cv2.line(img1, axis1[3], axis1[2], (0,0,255), 10)
+    # cv2.line(img2, axis2[3], axis2[0], (255,0,0), 10)
+    # cv2.line(img2, axis2[3], axis2[1], (0,255,0), 10)
+    # cv2.line(img2, axis2[3], axis2[2], (0,0,255), 10)
 
 
     #write images
     cv2.imwrite(outPath + '1.jpg', img1)
     cv2.imwrite(outPath + '2.jpg', img2)
 
+    cv2.imshow('left', img1)
+    cv2.imshow('right', img2)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
 
 
 #Params
 maxIndex = 32
 index1 = 0
-index2 = 3
+index2 = 8
 
 
 if not os.path.isfile('K.pickle'):
@@ -183,7 +229,7 @@ if not os.path.isfile('K.pickle'):
 with open('K.pickle', 'rb') as handle:
     K_mtx = pickle.load(handle)
 
-render(index1, index2, K_mtx)
+render(index1, index2, K_mtx, drawMatches=False)
 
 
 
