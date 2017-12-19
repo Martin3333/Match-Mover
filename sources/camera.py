@@ -67,7 +67,8 @@ class Camera(object):
         ret, mtx, dist, r_vectors, t_vectors = cv2.calibrateCamera(obj_points, img_points, img.shape[::-1], None, None)
         return mtx
 
-    def calcCameraPose(pts1, pts2, K):
+    @staticmethod
+    def get_camera_pose(pts1, pts2, K):
         # Compute F
         F, mask = cv2.findFundamentalMat(pts1,pts2,cv2.RANSAC)
         # Compute E
@@ -76,3 +77,60 @@ class Camera(object):
         _, R,T, mask= cv2.recoverPose(E, pts1, pts2, K)
 
         return R,T
+
+    @staticmethod
+    def get_keypoints(img):
+
+        detector = cv2.xfeatures2d.SURF_create()
+        kp, des = detector.detectAndCompute(img, None)
+
+        # for k in kp:
+        #     cv2.circle(img, (int(k.pt[0]),int(k.pt[1])),5, (255,255,255))
+
+        # cv2.imshow('sub pixel', img)
+        # if cv2.waitKey(0) & 0xff == 27:
+        #     cv2.destroyAllWindows()
+
+        return kp, des
+
+    @staticmethod
+    def match_keypoints(des1, des2):
+
+        matcher = cv2.BFMatcher_create(cv2.NORM_L1, crossCheck=True)
+        matches = matcher.match(des2, des1)
+
+        return matches
+
+
+
+    @staticmethod
+    def get_keypoints_harris(img):
+
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        gray = np.float32(gray)
+
+        dst = cv2.cornerHarris(gray, 3, 3, 0.1)
+        dst = cv2.dilate(dst, None)
+        #print(np.average(dst))
+        ret, dst = cv2.threshold(dst, 0.01 * dst.max(), 255, 0)
+
+
+        dst = np.uint8(dst)
+
+        # Find the centroids.
+        ret, labels, stats, centroids = cv2.connectedComponentsWithStats(dst)
+
+        # Define the criteria to stop and refine the corners.
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
+        corners = cv2.cornerSubPix(gray, np.float32(centroids), (5, 5), (-1, -1), criteria)
+
+        # for c in corners:
+        #     cv2.circle(img, (int(c[0]),int(c[1])),5, (255,255,255))
+
+        # cv2.imshow('sub pixel', img)
+        # if cv2.waitKey(0) & 0xff == 27:
+        #     cv2.destroyAllWindows()
+
+        return corners
+
+
