@@ -101,9 +101,22 @@ def main():
         with open(camera_calibration_file, "rb") as handle:
             camera_calibration_matrix = pickle.load(handle)
 
+    keypoints_file = os.path.join("..", "resources", "keypoints.pickle")
+    if not os.path.isfile(keypoints_file):
+        print("Detecting keypoints of video ...")
+        keypoints = Camera.detect_keypoints(video_file)
+        print("Keypoints detected.")
+        with open(keypoints_file, "wb") as handle:
+            pickle.dump(keypoints, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        print("Keypoints are already detected.")
+        with open(keypoints_file, "rb") as handle:
+            keypoints = pickle.load(handle)
+
     print("Start rendering ...")
 
-    Renderer.render(camera_calibration_matrix, video_file, object3d, object3d_position, object3d_rotation, recording)
+    Renderer.render(camera_calibration_matrix, keypoints, video_file, object3d, object3d_position, object3d_rotation,
+                    recording)
 
 
 if __name__ == '__main__':
@@ -114,3 +127,7 @@ if __name__ == '__main__':
 
     # simplified call:
     # main.py -v ..\resources\video.mp4 -o wireframe_cube
+
+
+# TODO fix EOFError: Ran out of input in line 114: keypoints = pickle.load(handle)
+# TODO fix TypeError: can't pickle cv2.KeyPoint objects

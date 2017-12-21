@@ -13,7 +13,7 @@ class Camera(object):
 
         vcap = cv2.VideoCapture(video_file)
 
-        if vcap is None:
+        if vcap is None or not vcap.isOpened():
             print("The video capture property could not be instantiated.")
             quit()
 
@@ -69,18 +69,17 @@ class Camera(object):
 
     @staticmethod
     def get_camera_pose(pts1, pts2, K):
-        # Compute F
-        F, mask = cv2.findFundamentalMat(pts1,pts2,cv2.RANSAC)
-        # Compute E
+        # Compute F.
+        F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.RANSAC)
+        # Compute E.
         E = np.dot(np.dot(np.transpose(K), F), K)
-        # Get R and T
-        _, R,T, mask= cv2.recoverPose(E, pts1, pts2, K)
+        # Get R and T.
+        _, R, T, mask = cv2.recoverPose(E, pts1, pts2, K)
 
-        return R,T
+        return R, T
 
     @staticmethod
     def get_keypoints(img):
-
         detector = cv2.xfeatures2d.SURF_create()
         kp, des = detector.detectAndCompute(img, None)
 
@@ -95,25 +94,20 @@ class Camera(object):
 
     @staticmethod
     def match_keypoints(des1, des2):
-
         matcher = cv2.BFMatcher_create(cv2.NORM_L1, crossCheck=True)
         matches = matcher.match(des2, des1)
 
         return matches
 
-
-
     @staticmethod
     def get_keypoints_harris(img):
-
         gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         gray = np.float32(gray)
 
         dst = cv2.cornerHarris(gray, 3, 3, 0.1)
         dst = cv2.dilate(dst, None)
-        #print(np.average(dst))
-        ret, dst = cv2.threshold(dst, 0.01 * dst.max(), 255, 0)
 
+        ret, dst = cv2.threshold(dst, 0.01 * dst.max(), 255, 0)
 
         dst = np.uint8(dst)
 
@@ -133,4 +127,77 @@ class Camera(object):
 
         return corners
 
+    @staticmethod
+    def detect_keypoints(video_file):
+        keypoints = []
+        vcap = cv2.VideoCapture(video_file)
 
+        if vcap is None or not vcap.isOpened():
+            print("The video capture property could not be instantiated.")
+            quit()
+        else:
+            ret, old_frame = vcap.read()
+            old_frame = cv2.cvtColor(old_frame, cv2.COLOR_BGR2GRAY)
+            old_keypoints, old_descriptors = Camera.get_keypoints(old_frame)
+
+            keypoint_counter = len(old_keypoints)
+            current_matches = dict((i, i) for i in range(len(old_keypoints)))
+
+            keypoints.append((old_keypoints, old_descriptors))
+
+            image_number = 0
+
+        while vcap.isOpened():
+            ret, new_frame = vcap.read()
+
+            if ret:
+                new_frame = cv2.cvtColor(new_frame, cv2.COLOR_BGR2GRAY)
+                new_keypoints, new_descriptors = Camera.get_keypoints(new_frame)
+
+                if new_descriptors is not None and old_descriptors is not None:
+                    matches = Camera.match_keypoints(new_descriptors, old_descriptors)
+                else:
+                    matches = []
+
+                # Each match produces:
+                # =========================================
+                # queryIdx - index of keypoint in new_keypoints.
+                # trainIdx - index of keypoint in old_keypoints.
+
+                # Two possibilities for each match:
+                # =========================================
+                # (1) the match is new, which means, that we haven't tracked that keypoint before.
+                # (2) the match is a continuation, which means, that we've tracked that keypoint before.
+
+                next_matches = {}
+
+                for match in matches:
+                    if match.trainIdx in current_matches:
+                        keypoint_no = current_matches[match.trainIdx]
+                        current_index = match.queryIdx
+                        next_matches[current_index] = keypoint_no
+                    else:
+                        keypoint_no = keypoint_counter
+                        keypoint_counter += 1
+                        current_index = match.queryIdx
+                        next_matches[current_index] = keypoint_no
+
+                current_matches = next_matches
+                old_keypoints, old_descriptors = new_keypoints, new_descriptors
+
+                keypoints.append((old_keypoints, old_descriptors))
+
+                # TODO fix IndexError: list index out of range in line 192.
+                # for current_index, keypoint_no in current_matches.items():
+                #    keypoint = new_keypoints[current_index]
+                #    print(image_number, keypoint_no, keypoint.pt[0], keypoint.pt[1])
+
+                image_number += 1
+            else:
+                break
+
+        vcap.release()
+
+        print(len(keypoints))
+
+        return keypoints

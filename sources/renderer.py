@@ -7,13 +7,14 @@ from sources.object3d import Object3D
 
 class Renderer(object):
     @staticmethod
-    def render(camera_calibration_matrix, video_file, object3d, object3d_position, object3d_rotation, recording):
+    def render(camera_calibration_matrix, keypoints, video_file, object3d, object3d_position, object3d_rotation,
+               recording):
         recorded_video = os.path.join("..", "recorded", "recorded.avi")
         window_title = "Match-Mover"
 
         vcap = cv2.VideoCapture(video_file)
 
-        if vcap is None:
+        if vcap is None or not vcap.isOpened():
             print("The video capture property could not be instantiated.")
             quit()
 
