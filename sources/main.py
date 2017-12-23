@@ -3,6 +3,7 @@
 
 import os
 import sys
+import dill
 import getopt
 import pickle
 from sources.camera import Camera
@@ -104,18 +105,35 @@ def main():
     keypoints_file = os.path.join("..", "resources", "keypoints.pickle")
     if not os.path.isfile(keypoints_file):
         print("Detecting keypoints of video ...")
-        keypoints = Camera.detect_keypoints(video_file)
+        # Get all keypoints (note: all keypoints were pickled).
+        keypoints_temp = Camera.detect_keypoints(video_file)
         print("Keypoints detected.")
-        with open(keypoints_file, "wb") as handle:
-            pickle.dump(keypoints, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        #with open(keypoints_file, "wb") as handle:
+        #    dill.dump(keypoints_temp, handle)   # TODO check
+
+        # Unpickle keypoints for the render-method.
+        keypoints, descriptors = Camera.unpickle_all_keypoints(keypoints_temp)
     else:
         print("Keypoints are already detected.")
         with open(keypoints_file, "rb") as handle:
-            keypoints = pickle.load(handle)
+            keypoints_db = dill.load(handle)    # TODO check
+
+        # Unpickle keypoints for the render-method.
+        keypoints, descriptors = Camera.unpickle_all_keypoints(keypoints_db)
+
+
+
+
+
+
+
+
+
+
 
     print("Start rendering ...")
 
-    Renderer.render(camera_calibration_matrix, keypoints, video_file, object3d, object3d_position, object3d_rotation,
+    Renderer.render(camera_calibration_matrix, keypoints, descriptors, video_file, object3d, object3d_position, object3d_rotation,
                     recording)
 
 

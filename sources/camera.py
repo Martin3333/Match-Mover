@@ -128,6 +128,39 @@ class Camera(object):
         return corners
 
     @staticmethod
+    def pickle_keypoints(keypoints, descriptors):
+        i = 0
+        temp_array = []
+        for point in keypoints:
+            temp = (point.pt, point.size, point.angle, point.response, point.octave,
+                    point.class_id, descriptors[i])
+            i += 1
+            temp_array.append(temp)
+        return temp_array
+
+    @staticmethod
+    def unpickle_keypoints(array):
+        keypoints = []
+        descriptors = []
+        for point in array:
+            temp_feature = cv2.KeyPoint(x=point[0][0], y=point[0][1], _size=point[1], _angle=point[2],
+                                        _response=point[3], _octave=point[4], _class_id=point[5])
+            temp_descriptor = point[6]
+            keypoints.append(temp_feature)
+            descriptors.append(temp_descriptor)
+        return keypoints, np.array(descriptors)
+
+    @staticmethod
+    def unpickle_all_keypoints(array):
+        keypoints = []
+        descriptors = []
+        for i in range(len(array)):
+            kp, desc = Camera.unpickle_keypoints(array[i])
+            keypoints.append(kp)
+            descriptors.append(desc)
+        return keypoints, descriptors
+
+    @staticmethod
     def detect_keypoints(video_file):
         keypoints = []
         vcap = cv2.VideoCapture(video_file)
@@ -143,7 +176,7 @@ class Camera(object):
             keypoint_counter = len(old_keypoints)
             current_matches = dict((i, i) for i in range(len(old_keypoints)))
 
-            keypoints.append((old_keypoints, old_descriptors))
+            keypoints.append(Camera.pickle_keypoints(old_keypoints, old_descriptors))
 
             image_number = 0
 
@@ -185,7 +218,7 @@ class Camera(object):
                 current_matches = next_matches
                 old_keypoints, old_descriptors = new_keypoints, new_descriptors
 
-                keypoints.append((old_keypoints, old_descriptors))
+                keypoints.append(Camera.pickle_keypoints(old_keypoints, old_descriptors))
 
                 # TODO fix IndexError: list index out of range in line 192.
                 # for current_index, keypoint_no in current_matches.items():
@@ -197,7 +230,5 @@ class Camera(object):
                 break
 
         vcap.release()
-
-        print(len(keypoints))
 
         return keypoints

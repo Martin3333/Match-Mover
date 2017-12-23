@@ -7,7 +7,7 @@ from sources.object3d import Object3D
 
 class Renderer(object):
     @staticmethod
-    def render(camera_calibration_matrix, keypoints, video_file, object3d, object3d_position, object3d_rotation,
+    def render(camera_calibration_matrix, keypoints, descriptors, video_file, object3d, object3d_position, object3d_rotation,
                recording):
         recorded_video = os.path.join("..", "recorded", "recorded.avi")
         window_title = "Match-Mover"
@@ -30,6 +30,7 @@ class Renderer(object):
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
             vout = cv2.VideoWriter(recorded_video, fourcc, fps, (int(width), int(height)))
 
+        frame_index = 0
         while vcap.isOpened():
             ret, frame = vcap.read()
 
@@ -39,7 +40,14 @@ class Renderer(object):
 
                 # TODO perform match moving here
 
-                cv2.imshow(window_title, color)
+
+
+                # TODO only for testing:
+                # Draw the keypoints.
+                kp_img = cv2.drawKeypoints(color, keypoints[frame_index], None)
+                frame_index += 1
+
+                cv2.imshow(window_title, kp_img)
 
                 if recording:
                     vout.write(color)
