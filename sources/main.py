@@ -3,12 +3,12 @@
 
 import os
 import sys
-import dill
+#import dill
 import getopt
 import pickle
-from sources.camera import Camera
-from sources.object3d import Object3D
-from sources.renderer import Renderer
+from camera import Camera
+from object3d import Object3D
+from renderer import Renderer
 
 
 def print_usage():
@@ -108,15 +108,15 @@ def main():
         # Get all keypoints (note: all keypoints were pickled).
         keypoints_temp = Camera.detect_keypoints(video_file)
         print("Keypoints detected.")
-        #with open(keypoints_file, "wb") as handle:
-        #    dill.dump(keypoints_temp, handle)   # TODO check
+        with open(keypoints_file, "wb") as handle:
+            pickle.dump(keypoints_temp, handle)   # TODO check
 
         # Unpickle keypoints for the render-method.
         keypoints, descriptors = Camera.unpickle_all_keypoints(keypoints_temp)
     else:
         print("Keypoints are already detected.")
         with open(keypoints_file, "rb") as handle:
-            keypoints_db = dill.load(handle)    # TODO check
+            keypoints_db = pickle.load(handle)    # TODO check
 
         # Unpickle keypoints for the render-method.
         keypoints, descriptors = Camera.unpickle_all_keypoints(keypoints_db)

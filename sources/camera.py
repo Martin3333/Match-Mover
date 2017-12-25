@@ -163,6 +163,7 @@ class Camera(object):
     @staticmethod
     def detect_keypoints(video_file):
         keypoints = []
+        all_matches = {}
         vcap = cv2.VideoCapture(video_file)
 
         if vcap is None or not vcap.isOpened():
@@ -219,6 +220,11 @@ class Camera(object):
                 old_keypoints, old_descriptors = new_keypoints, new_descriptors
 
                 keypoints.append(Camera.pickle_keypoints(old_keypoints, old_descriptors))
+
+
+                #Comment these out to see that there are always less matched keypoints than detected ones
+                # print('Matches: ' + str(len(current_matches)))
+                # print('Keypoints: ' + str(len(new_keypoints)))
 
                 # TODO fix IndexError: list index out of range in line 192.
                 # for current_index, keypoint_no in current_matches.items():
