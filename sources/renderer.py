@@ -7,8 +7,8 @@ from object3d import Object3D
 
 class Renderer(object):
     @staticmethod
-    def render(camera_calibration_matrix, keypoints, descriptors, video_file, object3d, object3d_position, object3d_rotation,
-               recording):
+    def render(cameras, video_file, object3d, object3d_position, object3d_rotation,
+               recording = True):
         recorded_video = os.path.join("..", "recorded", "recorded.avi")
         window_title = "Match-Mover"
 
@@ -25,10 +25,9 @@ class Renderer(object):
         width = vcap.get(cv2.CAP_PROP_FRAME_WIDTH)
         height = vcap.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
-        if recording:
-            # Define the codec and create VideoWriter object.
-            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            vout = cv2.VideoWriter(recorded_video, fourcc, fps, (int(width), int(height)))
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        vout = cv2.VideoWriter(recorded_video, fourcc, fps, (int(width), int(height)))
 
         frame_index = 0
         while vcap.isOpened():
@@ -39,34 +38,22 @@ class Renderer(object):
                 color = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
                 # TODO perform match moving here
+                if frame_index in cameras:
+                    color = Object3D.render(color, cameras[frame_index])
+                    vout.write(color)
 
-
-
-                # TODO only for testing:
-                # Draw the keypoints.
-                kp_img = cv2.drawKeypoints(color, keypoints[frame_index], None)
                 frame_index += 1
 
-                cv2.imshow(window_title, kp_img)
 
-                if recording:
-                    vout.write(color)
+                
             else:
                 break
 
-            key_code = cv2.waitKey(1)
 
-            # Closes the window if the ESC key was pressed.
-            if key_code == 27:
-                break
-
-            # Closes the window if the X button of the window was clicked.
-            if cv2.getWindowProperty(window_title, 1) == -1:
-                break
 
         vcap.release()
 
         if recording:
             vout.release()
 
-        cv2.destroyAllWindows()
+

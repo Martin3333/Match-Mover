@@ -5,7 +5,21 @@ import cv2
 import numpy as np
 
 
+R_ZERO = np.array([[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]])
+
 class Camera(object):
+
+    def __init__(self, K, R, T):
+        self.K = K
+        self.R = R
+        self.T = T
+
+    def P_from_RT(self):
+        # print(self.K)
+        # print(self.R)
+        # print(self.T)
+        return cv2.sfm.projectionFromKRt(self.K, self.R, self.T)
+
     @staticmethod
     def generate_video_frames(video_file):
         frame_index = 0
@@ -71,12 +85,37 @@ class Camera(object):
     def get_camera_pose(pts1, pts2, K):
         # Compute F.
         F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.RANSAC)
+        F = cv2.sfm.normalizeFundamental(F)
         # Compute E.
         E = np.dot(np.dot(np.transpose(K), F), K)
         # Get R and T.
         _, R, T, mask = cv2.recoverPose(E, pts1, pts2, K)
 
         return R, T
+
+    @staticmethod
+    def find_frames_with_overlap(trajectories, start_frame, min_keypoints=100):
+
+        kp_indices = [kp for kp in trajectories if start_frame in trajectories[kp]]
+
+        overlap = kp_indices
+        ctr = 0
+        while len(overlap) > min_keypoints:
+            ctr += 1
+            overlap = [(kp,trajectories[kp]) for kp in kp_indices if start_frame+ctr in trajectories[kp]]
+        ctr -= 1
+        overlap = [(kp,trajectories[kp]) for kp in kp_indices if start_frame+ctr in trajectories[kp]]
+
+        pts1 = []
+        pts2 = []
+        indices = []
+        for o in overlap:
+            pts1.append(o[1][start_frame])
+            pts2.append(o[1][start_frame+ctr])
+            indices.append(o[0])
+        return ctr, pts1, pts2, indices
+
+        
 
     @staticmethod
     def get_keypoints(img):
@@ -95,7 +134,7 @@ class Camera(object):
     @staticmethod
     def match_keypoints(des1, des2):
         matcher = cv2.BFMatcher_create(cv2.NORM_L1, crossCheck=True)
-        matches = matcher.match(des2, des1)
+        matches = matcher.match(des1, des2)
 
         return matches
 
@@ -128,42 +167,62 @@ class Camera(object):
         return corners
 
     @staticmethod
-    def pickle_keypoints(keypoints, descriptors):
-        i = 0
-        temp_array = []
-        for point in keypoints:
-            temp = (point.pt, point.size, point.angle, point.response, point.octave,
-                    point.class_id, descriptors[i])
-            i += 1
-            temp_array.append(temp)
-        return temp_array
+    def find_cameras(trajectories, K, start_frame=1, camera_z_offset=+2000.0):
+
+        cameras = {start_frame: Camera(K, R_ZERO, (0.0, 0.0, camera_z_offset))}
+
+        offset1, pts1, pts2, indices1 = Camera.find_frames_with_overlap(trajectories, start_frame, min_keypoints=200)
+
+        pts1 = np.int32(pts1)
+        pts2 = np.int32(pts2)
+        R,T = Camera.get_camera_pose(pts1, pts2, K)
+        T[2] += camera_z_offset
+
+        cameras[start_frame+offset1] = Camera(K, R, T)
+
+        while True:
+            offset2, _, pts3, indices2 = Camera.find_frames_with_overlap(trajectories, start_frame, min_keypoints=100)
+            if start_frame+offset2 in cameras:
+                break
+
+            pts1 = [trajectories[i][start_frame] for i in indices2]
+            pts2 = [trajectories[i][start_frame+offset1] for i in indices2]
+
+            P1 = cameras[start_frame].P_from_RT()
+            P2 = cameras[start_frame+offset1].P_from_RT()
+            F = cv2.sfm.fundamentalFromProjections(P1, P2)
+            F = cv2.sfm.normalizeFundamental(F)
+            
+            pts1, pts2 = cv2.correctMatches(F, np.array([pts1]), np.array([pts2]))
+
+            object_points = []
+            for p1,p2 in list(zip(pts1[0], pts2[0])):
+                ret = cv2.triangulatePoints(P1, P2, np.array([p1[0],p1[1]]), np.array([p2[0],p2[1]]))
+                object_points.append(ret)
+            object_points = cv2.convertPointsFromHomogeneous(np.array(object_points))
+            ret, R, T, _ = cv2.solvePnPRansac(object_points, np.array(pts3), K, (0,0,0,0))
+            R,_ = cv2.Rodrigues(R)
+            cameras[start_frame+offset2] = Camera(K,R,T)
+
+            for frame in range(start_frame, start_frame+offset2):
+                if frame not in cameras:
+                    pts_frame = [trajectories[kp][frame] for kp in indices2]
+                    ret, R, T, _ = cv2.solvePnPRansac(object_points, np.array(pts_frame), K, (0,0,0,0))
+                    cameras[frame] = Camera(K,R,T)
+
+            start_frame += offset1
+            offset1 = offset2 - offset1
+
+        return cameras
+
+
+
+
 
     @staticmethod
-    def unpickle_keypoints(array):
-        keypoints = []
-        descriptors = []
-        for point in array:
-            temp_feature = cv2.KeyPoint(x=point[0][0], y=point[0][1], _size=point[1], _angle=point[2],
-                                        _response=point[3], _octave=point[4], _class_id=point[5])
-            temp_descriptor = point[6]
-            keypoints.append(temp_feature)
-            descriptors.append(temp_descriptor)
-        return keypoints, np.array(descriptors)
+    def detect_trajectories(video_file):
 
-    @staticmethod
-    def unpickle_all_keypoints(array):
-        keypoints = []
-        descriptors = []
-        for i in range(len(array)):
-            kp, desc = Camera.unpickle_keypoints(array[i])
-            keypoints.append(kp)
-            descriptors.append(desc)
-        return keypoints, descriptors
-
-    @staticmethod
-    def detect_keypoints(video_file):
-        keypoints = []
-        all_matches = {}
+        trajectories = {}
         vcap = cv2.VideoCapture(video_file)
 
         if vcap is None or not vcap.isOpened():
@@ -177,9 +236,13 @@ class Camera(object):
             keypoint_counter = len(old_keypoints)
             current_matches = dict((i, i) for i in range(len(old_keypoints)))
 
-            keypoints.append(Camera.pickle_keypoints(old_keypoints, old_descriptors))
+            #Initially, every KP is the start of a trajectory
+            for index in current_matches.keys():
+                trajectories[index] = {0: old_keypoints[index].pt}
 
-            image_number = 0
+
+
+            image_number = 1
 
         while vcap.isOpened():
             ret, new_frame = vcap.read()
@@ -210,26 +273,24 @@ class Camera(object):
                         keypoint_no = current_matches[match.trainIdx]
                         current_index = match.queryIdx
                         next_matches[current_index] = keypoint_no
+                        ## Already have that keypoint, add point for current frame
+                        trajectories[keypoint_no][image_number] = new_keypoints[current_index].pt
+
+
                     else:
                         keypoint_no = keypoint_counter
                         keypoint_counter += 1
                         current_index = match.queryIdx
                         next_matches[current_index] = keypoint_no
+                        ## New keypoint, add points from current and LAST frame, was there already but didn't recognize it
+                        trajectories[keypoint_no] = {image_number: new_keypoints[current_index].pt,
+                                                    image_number-1: old_keypoints[match.trainIdx].pt}
+
 
                 current_matches = next_matches
                 old_keypoints, old_descriptors = new_keypoints, new_descriptors
 
-                keypoints.append(Camera.pickle_keypoints(old_keypoints, old_descriptors))
 
-
-                #Comment these out to see that there are always less matched keypoints than detected ones
-                # print('Matches: ' + str(len(current_matches)))
-                # print('Keypoints: ' + str(len(new_keypoints)))
-
-                # TODO fix IndexError: list index out of range in line 192.
-                # for current_index, keypoint_no in current_matches.items():
-                #    keypoint = new_keypoints[current_index]
-                #    print(image_number, keypoint_no, keypoint.pt[0], keypoint.pt[1])
 
                 image_number += 1
             else:
@@ -237,4 +298,4 @@ class Camera(object):
 
         vcap.release()
 
-        return keypoints
+        return trajectories

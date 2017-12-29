@@ -19,8 +19,8 @@ class Object3D(object):
         return new_points
 
     @staticmethod
-    def render(img, R, T, K):
-
+    def render(img, camera):
+    #def render(img, R, T, K):
         #Simple Cube in 3D
         points3d = []
         points3d.append((1.0, 1.0, 1.0))
@@ -32,11 +32,12 @@ class Object3D(object):
         points3d.append((-1.0, -1.0, -1.0))
         points3d.append((-1.0 , -1.0, 1.0))
         #move it around
-        points3d = Object3D.scale_3d_points(points3d, (10.0, 10.0, 100.0))
-        points3d = Object3D.translate_3d_points(points3d, 0.0, 0.0, 0.0)
+        points3d = Object3D.scale_3d_points(points3d, (10.0, 20.0, 100.0))
+        points3d = Object3D.translate_3d_points(points3d, -30.0, 0.0, 0.0)
 
         #project using 0 distortion coefficients
-        points2d, _ = cv2.projectPoints(np.array(points3d), R, T, K, (0,0,0,0))
+        points2d, _ = cv2.projectPoints(np.array(points3d), camera.R, camera.T, camera.K, (0,0,0,0))
+        #points2d, _ = cv2.projectPoints(np.array(points3d), R, T, K, (0,0,0,0))
         points2d = [(np.int32(p[0][0]), np.int32(p[0][1])) for p in points2d]
 
         #draw cube
