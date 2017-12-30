@@ -36,7 +36,7 @@ class Camera(object):
 
             if ret:
                 color = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
-                if num_frames % 20 == 0:
+                if num_frames % 10 == 0:
                     image = str(frame_index) + ".jpg"
                     image_frame = os.path.join("..", "resources", "video_frames", image)
                     cv2.imwrite(image_frame, color)
@@ -47,6 +47,7 @@ class Camera(object):
                 break
 
         vcap.release()
+        return frame_index
 
     @staticmethod
     def calibrate(max_index, chess_board_rows, chess_board_columns,

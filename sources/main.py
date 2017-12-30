@@ -87,14 +87,14 @@ def main():
     else:
         print("Video recording is OFF")
 
-    max_frame_index = 91
+    
     chess_board_rows = 5
     chess_board_columns = 7
 
     camera_calibration_file = os.path.join("..", "resources", "K.pickle")
     if not os.path.isfile(camera_calibration_file):
         print("Calibrating camera ...")
-        Camera.generate_video_frames(video_file)
+        max_frame_index = Camera.generate_video_frames(video_file)
         camera_calibration_matrix = Camera.calibrate(max_frame_index, chess_board_rows, chess_board_columns)
         print("The camera has been calibrated.")
         with open(camera_calibration_file, "wb") as handle:
@@ -103,6 +103,10 @@ def main():
         print("The camera is already calibrated.")
         with open(camera_calibration_file, "rb") as handle:
             camera_calibration_matrix = pickle.load(handle)
+        print(camera_calibration_matrix)
+        camera_calibration_matrix = np.array([[6000.0, 0.0, 536.5],
+                                                [0.0, 6000.0, 536.5],
+                                                [0.0, 0.0, 1.0]])
 
 
 
