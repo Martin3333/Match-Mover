@@ -3,10 +3,13 @@
 import os
 import cv2
 import numpy as np
+from scipy.sparse import lil_matrix
+from scipy.optimize import least_squares
+import matplotlib.pyplot as plt
 
 
 R_ZERO = np.array([[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]])
-
+#R_ZERO = np.array([[0.0, 0.0, 0.0]])
 class Camera(object):
 
     def __init__(self, K, R, T):
@@ -19,6 +22,9 @@ class Camera(object):
         # print(self.R)
         # print(self.T)
         return cv2.sfm.projectionFromKRt(self.K, self.R, self.T)
+    @property
+    def r_vec(self):
+        return cv2.Rodrigues(self.R)[0]
 
     @staticmethod
     def generate_video_frames(video_file):
@@ -50,8 +56,7 @@ class Camera(object):
         return frame_index
 
     @staticmethod
-    def calibrate(max_index, chess_board_rows, chess_board_columns,
-                  path=os.path.join("..", "resources", "video_frames")):
+    def calibrate(max_index, chess_board_rows, chess_board_columns,path=os.path.join("..", "resources", "video_frames")):
         # Termination criteria.
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
@@ -75,7 +80,7 @@ class Camera(object):
             # If found, add object points, image points (after refining them).
             if ret:
                 obj_points.append(obj_pt)
-                cv2.cornerSubPix(img, corners, (11, 11), (-1, -1), criteria)
+                corners = cv2.cornerSubPix(img, corners, (11, 11), (-1, -1), criteria)
                 img_points.append(corners)
 
         img = cv2.imread(os.path.join(path, "0.jpg"), 0)
@@ -85,14 +90,16 @@ class Camera(object):
     @staticmethod
     def get_camera_pose(pts1, pts2, K):
         # Compute F.
-        F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.RANSAC)
+        F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.RANSAC, param1=3.5)
+        #print(mask)
         F = cv2.sfm.normalizeFundamental(F)
         # Compute E.
         E = np.dot(np.dot(np.transpose(K), F), K)
         # Get R and T.
-        _, R, T, mask = cv2.recoverPose(E, pts1, pts2, K)
+        _, R, T, _ = cv2.recoverPose(E, pts1, pts2, K)
 
-        return R, T
+
+        return R, T, mask
 
     @staticmethod
     def find_frames_with_overlap(trajectories, start_frame, min_keypoints=100):
@@ -168,21 +175,28 @@ class Camera(object):
         return corners
 
     @staticmethod
-    def find_cameras(trajectories, K, start_frame=1, camera_z_offset=+2000.0):
+    def find_keyframe_cameras(trajectories, K, start_frame=1, camera_z_offset=2000.0):
 
         cameras = {start_frame: Camera(K, R_ZERO, (0.0, 0.0, camera_z_offset))}
+        points_3d = {}
 
         offset1, pts1, pts2, indices1 = Camera.find_frames_with_overlap(trajectories, start_frame, min_keypoints=200)
 
         pts1 = np.int32(pts1)
         pts2 = np.int32(pts2)
-        R,T = Camera.get_camera_pose(pts1, pts2, K)
+        #add to points 3D
+        R,T, mask = Camera.get_camera_pose(pts1, pts2, K)
         T[2] += camera_z_offset
 
         cameras[start_frame+offset1] = Camera(K, R, T)
 
+
+
+
         while True:
             offset2, _, pts3, indices2 = Camera.find_frames_with_overlap(trajectories, start_frame, min_keypoints=100)
+            # print(start_frame)
+            # print(offset2)
             if start_frame+offset2 in cameras:
                 break
 
@@ -201,20 +215,98 @@ class Camera(object):
                 ret = cv2.triangulatePoints(P1, P2, np.array([p1[0],p1[1]]), np.array([p2[0],p2[1]]))
                 object_points.append(ret)
             object_points = cv2.convertPointsFromHomogeneous(np.array(object_points))
-            ret, R, T, _ = cv2.solvePnPRansac(object_points, np.array(pts3), K, (0,0,0,0))
+            ret, R, T, inliers = cv2.solvePnPRansac(object_points, np.array(pts3), K, (0,0,0,0), reprojectionError=20.0)
             R,_ = cv2.Rodrigues(R)
             cameras[start_frame+offset2] = Camera(K,R,T)
 
-            for frame in range(start_frame, start_frame+offset2):
-                if frame not in cameras:
-                    pts_frame = [trajectories[kp][frame] for kp in indices2]
-                    ret, R, T, _ = cv2.solvePnPRansac(object_points, np.array(pts_frame), K, (0,0,0,0))
-                    cameras[frame] = Camera(K,R,T)
+
+            for i in range(0,len(indices2)-1):
+                if indices2[i] not in points_3d and i in inliers:
+                    points_3d[indices2[i]] = object_points[i]
+
+            # for frame in range(start_frame, start_frame+offset2):
+            #     if frame not in cameras:
+            #         pts_frame = [trajectories[kp][frame] for kp in indices2]
+                    # ret, R, T, _ = cv2.solvePnPRansac(object_points, np.array(pts_frame), K, (0,0,0,0))
+                    # R,_ = cv2.Rodrigues(R)
+                    # cameras[frame] = Camera(K,R,T)
 
             start_frame += offset1
             offset1 = offset2 - offset1
 
+        return cameras, points_3d
+
+    @staticmethod
+    def find_all_cameras(trajectories, cameras, points_3d, K):
+
+        for frame in range(0, max(cameras.keys())):
+            if frame not in cameras:
+                indices = [kp for kp in trajectories if frame in trajectories[kp] and kp in points_3d]
+                pts_frame = [trajectories[kp][frame] for kp in indices]
+                # if frame-1 in cameras:
+                #     ret, R, T, _ = cv2.solvePnPRansac(np.array([points_3d[kp] for kp in indices]), np.array(pts_frame), K, (0,0,0,0), cameras[frame-1].r_vec, cameras[frame-1].T, useExtrinsicGuess=True)
+                # else:
+                ret, R, T, _ = cv2.solvePnPRansac(np.array([points_3d[kp] for kp in indices]), np.array(pts_frame), K, (0,0,0,0), reprojectionError = 10.0)
+                R,_ = cv2.Rodrigues(R)
+                cameras[frame] = Camera(K,R,T)
         return cameras
+
+
+    #TODO: sparse and filter outliers
+    @staticmethod
+    def bundle_adjustment(cameras, trajectories, points_3d, K):
+        filtered_trajectories = {}
+        for p in trajectories:
+            if p in points_3d:
+                filtered_trajectories[p] = {}
+                for frame in trajectories[p]:
+                    if frame in cameras:
+                        filtered_trajectories[p][frame] = trajectories[p][frame]
+        #print(filtered_trajectories)
+
+        n_cameras = len(cameras.keys())
+        n_points = len(points_3d.keys())
+        camera_params = []
+        for c in cameras.values():
+            R = cv2.Rodrigues(c.R)[0]
+            camera_params.append([R[0][0], R[1][0], R[2][0], c.T[0], c.T[1], c.T[2]])
+
+        camera_params = np.array(camera_params)
+        point_indices = [p for p in points_3d.keys()]
+        camera_indices = [c for c in cameras.keys()]
+        points_3d_params = np.array([p[0] for p in points_3d.values()])
+
+        def fun(params, n_cameras, n_points, point_indices, camera_indices, trajectories, K):
+            camera_params = params[:n_cameras*6].reshape((n_cameras, 6))
+            points_3d = params[n_cameras*6:].reshape((n_points, 3))
+            projected = []
+            points2d = []
+            for c in range(0, n_cameras-1):
+                for p in range(0, n_points-1):
+                    if camera_indices[c] not in trajectories[point_indices[p]]:
+                        continue
+
+                    points2d.append(trajectories[point_indices[p]][camera_indices[c]])
+                    p3d = points_3d[p]
+                    R = camera_params[c][:3]
+                    T = camera_params[c][3:]
+                    
+                    reprojected,_ = cv2.projectPoints(np.array([p3d]), R, T, K, (0,0,0,0))
+                    projected.append((reprojected[0][0][0], reprojected[0][0][1]))
+
+            points2d = np.array(points2d)
+            projected = np.array(projected)
+
+            return (projected - points2d).ravel()
+
+
+        x0 = np.hstack((camera_params.ravel(), points_3d_params.ravel()))
+        #re = fun(x0, n_cameras, n_points, point_indices, camera_indices, filtered_trajectories, K)
+        res = least_squares(fun, x0, args=(n_cameras, n_points, point_indices, camera_indices, filtered_trajectories, K))
+
+        plt.plot(res.fun)
+        plt.show()
+
 
 
 
