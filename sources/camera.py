@@ -6,12 +6,13 @@ import numpy as np
 from scipy.sparse import lil_matrix
 from scipy.optimize import least_squares
 import matplotlib.pyplot as plt
+from sources.root_sift import RootSIFT
 
 
-R_ZERO = np.array([[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]])
-#R_ZERO = np.array([[0.0, 0.0, 0.0]])
+R_ZERO = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+
+
 class Camera(object):
-
     def __init__(self, K, R, T):
         self.K = K
         self.R = R
@@ -103,48 +104,76 @@ class Camera(object):
 
     @staticmethod
     def find_frames_with_overlap(trajectories, start_frame, min_keypoints=100):
-
         kp_indices = [kp for kp in trajectories if start_frame in trajectories[kp]]
 
         overlap = kp_indices
         ctr = 0
         while len(overlap) > min_keypoints:
             ctr += 1
-            overlap = [(kp,trajectories[kp]) for kp in kp_indices if start_frame+ctr in trajectories[kp]]
+            overlap = [(kp, trajectories[kp]) for kp in kp_indices if start_frame + ctr in trajectories[kp]]
         ctr -= 1
-        overlap = [(kp,trajectories[kp]) for kp in kp_indices if start_frame+ctr in trajectories[kp]]
+        overlap = [(kp, trajectories[kp]) for kp in kp_indices if start_frame + ctr in trajectories[kp]]
 
         pts1 = []
         pts2 = []
         indices = []
         for o in overlap:
             pts1.append(o[1][start_frame])
-            pts2.append(o[1][start_frame+ctr])
+            pts2.append(o[1][start_frame + ctr])
             indices.append(o[0])
+
         return ctr, pts1, pts2, indices
 
-        
-
     @staticmethod
-    def get_keypoints(img):
-        detector = cv2.xfeatures2d.SURF_create()
-        kp, des = detector.detectAndCompute(img, None)
+    def get_keypoints(image):
+        # detector = cv2.xfeatures2d.SURF_create()
+        # kps, descs = detector.detectAndCompute(img, None)
 
-        # for k in kp:
-        #     cv2.circle(img, (int(k.pt[0]),int(k.pt[1])),5, (255,255,255))
 
-        # cv2.imshow('sub pixel', img)
-        # if cv2.waitKey(0) & 0xff == 27:
-        #     cv2.destroyAllWindows()
+        # Here are two different variants of feature detection and extraction.
+        # To test them, please comment one of these variants out.
 
-        return kp, des
+        # ================ Variant No. 1 ================ #
+
+        # Detect difference of Gaussian keypoints in the image.
+        detector = cv2.xfeatures2d.HarrisLaplaceFeatureDetector_create()
+        kps = detector.detect(image)
+
+        # Extract RootSIFT descriptors.
+        rs = RootSIFT()
+        kps, descs = rs.compute(image, kps)
+
+        # =============================================== #
+
+        # ================ Variant No. 2 ================ #
+
+        # Initialize FAST feature detector.
+        #fast = cv2.FastFeatureDetector_create(threshold=35)
+        #kps = fast.detect(image, None)
+
+        # Extract RootSift descriptors.
+        #rs = RootSIFT()
+        #kps, descs = rs.compute(image, kps)
+
+        # =============================================== #
+
+        return kps, descs
 
     @staticmethod
     def match_keypoints(des1, des2):
         matcher = cv2.BFMatcher_create(cv2.NORM_L1, crossCheck=True)
         matches = matcher.match(des1, des2)
 
-        return matches
+        # Sort them in the order of their distance.
+        matches = sorted(matches, key=lambda x: x.distance)
+
+        # Apply ratio test.
+        good_matches = []
+        for m, n in matches:
+            if m.distance < 0.75 * n.distance:
+                good_matches.append([m])
+
+        return good_matches
 
     @staticmethod
     def get_keypoints_harris(img):
@@ -165,13 +194,6 @@ class Camera(object):
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
         corners = cv2.cornerSubPix(gray, np.float32(centroids), (5, 5), (-1, -1), criteria)
 
-        # for c in corners:
-        #     cv2.circle(img, (int(c[0]),int(c[1])),5, (255,255,255))
-
-        # cv2.imshow('sub pixel', img)
-        # if cv2.waitKey(0) & 0xff == 27:
-        #     cv2.destroyAllWindows()
-
         return corners
 
     @staticmethod
@@ -184,36 +206,36 @@ class Camera(object):
 
         pts1 = np.int32(pts1)
         pts2 = np.int32(pts2)
+
         #add to points 3D
         R,T, mask = Camera.get_camera_pose(pts1, pts2, K)
         T[2] += camera_z_offset
 
-        cameras[start_frame+offset1] = Camera(K, R, T)
+        cameras[start_frame + offset1] = Camera(K, R, T)
 
 
 
 
         while True:
             offset2, _, pts3, indices2 = Camera.find_frames_with_overlap(trajectories, start_frame, min_keypoints=100)
-            # print(start_frame)
-            # print(offset2)
-            if start_frame+offset2 in cameras:
+            if start_frame + offset2 in cameras:
                 break
 
             pts1 = [trajectories[i][start_frame] for i in indices2]
-            pts2 = [trajectories[i][start_frame+offset1] for i in indices2]
+            pts2 = [trajectories[i][start_frame + offset1] for i in indices2]
 
             P1 = cameras[start_frame].P_from_RT()
-            P2 = cameras[start_frame+offset1].P_from_RT()
+            P2 = cameras[start_frame + offset1].P_from_RT()
             F = cv2.sfm.fundamentalFromProjections(P1, P2)
             F = cv2.sfm.normalizeFundamental(F)
-            
+
             pts1, pts2 = cv2.correctMatches(F, np.array([pts1]), np.array([pts2]))
 
             object_points = []
-            for p1,p2 in list(zip(pts1[0], pts2[0])):
-                ret = cv2.triangulatePoints(P1, P2, np.array([p1[0],p1[1]]), np.array([p2[0],p2[1]]))
+            for p1, p2 in list(zip(pts1[0], pts2[0])):
+                ret = cv2.triangulatePoints(P1, P2, np.array([p1[0], p1[1]]), np.array([p2[0], p2[1]]))
                 object_points.append(ret)
+
             object_points = cv2.convertPointsFromHomogeneous(np.array(object_points))
             ret, R, T, inliers = cv2.solvePnPRansac(object_points, np.array(pts3), K, (0,0,0,0), reprojectionError=20.0)
             R,_ = cv2.Rodrigues(R)
@@ -224,12 +246,6 @@ class Camera(object):
                 if indices2[i] not in points_3d and i in inliers:
                     points_3d[indices2[i]] = object_points[i]
 
-            # for frame in range(start_frame, start_frame+offset2):
-            #     if frame not in cameras:
-            #         pts_frame = [trajectories[kp][frame] for kp in indices2]
-                    # ret, R, T, _ = cv2.solvePnPRansac(object_points, np.array(pts_frame), K, (0,0,0,0))
-                    # R,_ = cv2.Rodrigues(R)
-                    # cameras[frame] = Camera(K,R,T)
 
             start_frame += offset1
             offset1 = offset2 - offset1
@@ -251,6 +267,7 @@ class Camera(object):
                 cameras[frame] = Camera(K,R,T)
         return cameras
 
+<<<<<<< HEAD
 
     #TODO: sparse and filter outliers
     @staticmethod
@@ -314,7 +331,6 @@ class Camera(object):
 
     @staticmethod
     def detect_trajectories(video_file):
-
         trajectories = {}
         vcap = cv2.VideoCapture(video_file)
 
@@ -329,11 +345,9 @@ class Camera(object):
             keypoint_counter = len(old_keypoints)
             current_matches = dict((i, i) for i in range(len(old_keypoints)))
 
-            #Initially, every KP is the start of a trajectory
+            # Initially, every keypoint is the start of a trajectory.
             for index in current_matches.keys():
                 trajectories[index] = {0: old_keypoints[index].pt}
-
-
 
             image_number = 1
 
@@ -366,24 +380,20 @@ class Camera(object):
                         keypoint_no = current_matches[match.trainIdx]
                         current_index = match.queryIdx
                         next_matches[current_index] = keypoint_no
-                        ## Already have that keypoint, add point for current frame
+                        # We already have that keypoint, add point for current frame.
                         trajectories[keypoint_no][image_number] = new_keypoints[current_index].pt
-
-
                     else:
                         keypoint_no = keypoint_counter
                         keypoint_counter += 1
                         current_index = match.queryIdx
                         next_matches[current_index] = keypoint_no
-                        ## New keypoint, add points from current and LAST frame, was there already but didn't recognize it
+                        # New keypoint, add points from current and LAST frame, was there already but didn't recognize
+                        # it.
                         trajectories[keypoint_no] = {image_number: new_keypoints[current_index].pt,
-                                                    image_number-1: old_keypoints[match.trainIdx].pt}
-
+                                                     image_number - 1: old_keypoints[match.trainIdx].pt}
 
                 current_matches = next_matches
                 old_keypoints, old_descriptors = new_keypoints, new_descriptors
-
-
 
                 image_number += 1
             else:
