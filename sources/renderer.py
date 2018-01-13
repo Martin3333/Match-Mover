@@ -24,14 +24,7 @@ class Renderer(object):
             ret = cv2.triangulatePoints(P1, P2, np.array([p1[0],p1[1]]), np.array([p2[0],p2[1]]))
             object_points.append(ret)
         object_points = cv2.convertPointsFromHomogeneous(np.array(object_points))
-        #print(object_points)
-        points3d = []
-        points3d.append((1.0, -1.0, -1.0))
-        points3d.append((1.0, -1.0, 1.0))
-        points3d.append((-1.0, -1.0, 1.0))
-        points3d.append((-1.0 , -1.0, -1.0))
 
-        trans_matrix = cv2.estimateAffine3D(np.array(points3d), object_points)
 
         #return trans_matrix[1]
         return object_points

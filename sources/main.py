@@ -126,7 +126,6 @@ def main():
 
     cameras, points_3d = Camera.find_keyframe_cameras(trajectories, camera_calibration_matrix)
 
-    print(points_3d.keys())
 
     #Camera.bundle_adjustment(cameras, trajectories, points_3d, camera_calibration_matrix)
     cameras = Camera.find_all_cameras(trajectories, cameras, points_3d, camera_calibration_matrix)

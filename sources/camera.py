@@ -6,7 +6,7 @@ import numpy as np
 from scipy.sparse import lil_matrix
 from scipy.optimize import least_squares
 import matplotlib.pyplot as plt
-from sources.root_sift import RootSIFT
+from root_sift import RootSIFT
 
 
 R_ZERO = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
@@ -19,9 +19,9 @@ class Camera(object):
         self.T = T
 
     def P_from_RT(self):
-        # print(self.K)
-        # print(self.R)
-        # print(self.T)
+
+        #print(np.dot(self.K, np.dot(self.R, np.array(self.T).T)))
+        #return np.dot(self.K, np.dot(self.R, self.T))
         return cv2.sfm.projectionFromKRt(self.K, self.R, self.T)
     @property
     def r_vec(self):
@@ -175,26 +175,7 @@ class Camera(object):
 
         return good_matches
 
-    @staticmethod
-    def get_keypoints_harris(img):
-        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        gray = np.float32(gray)
 
-        dst = cv2.cornerHarris(gray, 3, 3, 0.1)
-        dst = cv2.dilate(dst, None)
-
-        ret, dst = cv2.threshold(dst, 0.01 * dst.max(), 255, 0)
-
-        dst = np.uint8(dst)
-
-        # Find the centroids.
-        ret, labels, stats, centroids = cv2.connectedComponentsWithStats(dst)
-
-        # Define the criteria to stop and refine the corners.
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
-        corners = cv2.cornerSubPix(gray, np.float32(centroids), (5, 5), (-1, -1), criteria)
-
-        return corners
 
     @staticmethod
     def find_keyframe_cameras(trajectories, K, start_frame=1, camera_z_offset=2000.0):
@@ -267,7 +248,6 @@ class Camera(object):
                 cameras[frame] = Camera(K,R,T)
         return cameras
 
-<<<<<<< HEAD
 
     #TODO: sparse and filter outliers
     @staticmethod
