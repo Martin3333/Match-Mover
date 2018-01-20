@@ -273,7 +273,12 @@ class Camera(object):
         camera_indices = [c for c in cameras.keys()]
         points_3d_params = np.array([p[0] for p in points_3d.values()])
 
-        def fun(params, n_cameras, n_points, point_indices, camera_indices, trajectories, K):
+
+                #points2d.append(trajectories[point_indices[p]][camera_indices[c]])
+
+        
+
+        def fun(params, n_cameras, n_points, point_indices, camera_indices, points2d, K):
             camera_params = params[:n_cameras*6].reshape((n_cameras, 6))
             points_3d = params[n_cameras*6:].reshape((n_points, 3))
             projected = []
@@ -294,15 +299,51 @@ class Camera(object):
             points2d = np.array(points2d)
             projected = np.array(projected)
 
-            return (projected - points2d).ravel()
+            ret = list(map(lambda x: np.sqrt((x[0][0]-x[1][0])*(x[0][0]-x[1][0]) + (x[0][1]-x[1][1])*(x[0][1]-x[1][1])) ,list(zip(points2d, projected))))
+            # bla = [r for r in ret if r > 50.0]
+            # print(len(bla))
+
+            return np.array(ret)
 
 
         x0 = np.hstack((camera_params.ravel(), points_3d_params.ravel()))
-        #re = fun(x0, n_cameras, n_points, point_indices, camera_indices, filtered_trajectories, K)
-        res = least_squares(fun, x0, args=(n_cameras, n_points, point_indices, camera_indices, filtered_trajectories, K))
 
-        plt.plot(res.fun)
-        plt.show()
+        ## TODO: Filter Outliers
+        first_res = fun(x0, n_cameras, n_points, point_indices, camera_indices, filtered_trajectories, K)
+        first_res = [r for r in first_res if r < 50.0]
+
+
+        A = lil_matrix((len(first_res), n_cameras*6+n_points*3), dtype=int)
+        #points2d = []
+        ctr = 0
+        for c in range(0, n_cameras-1):
+            for p in range(0, n_points-1):
+                if camera_indices[c] not in trajectories[point_indices[p]]:
+                    continue
+                for i in range(0,9):
+                    A[ctr,c*6+i] = 1
+                for i in range(0,3):
+                    A[ctr, n_cameras*6+p*3 + i]
+                ctr += 1
+
+        res = least_squares(fun, x0, args=(n_cameras, n_points, point_indices, camera_indices, filtered_trajectories, K), verbose=2, x_scale='jac', jac_sparsity=A, ftol=0.0000001)
+
+        camera_params = res.x[:n_cameras*6].reshape((n_cameras,6))
+        points_3d_params = res.x[n_cameras*6:].reshape((n_points,3))
+
+        idx = 0
+        for i in point_indices:
+            points_3d[i] = points_3d_params[idx]
+            idx += 1
+        idx = 0
+        for i in camera_indices:
+            cameras[i].R = cv2.Rodrigues(camera_params[idx][:3])[0]
+            cameras[i].T = camera_params[idx][3:]
+            idx += 1
+
+        return cameras, points_3d
+
+
 
 
 

@@ -124,10 +124,10 @@ def main():
             trajectories = pickle.load(handle)    # TODO check
 
 
-    cameras, points_3d = Camera.find_keyframe_cameras(trajectories, camera_calibration_matrix)
+    cameras, points_3d = Camera.find_keyframe_cameras(trajectories, camera_calibration_matrix, start_frame=1)
 
 
-    #Camera.bundle_adjustment(cameras, trajectories, points_3d, camera_calibration_matrix)
+    cameras, points_3d = Camera.bundle_adjustment(cameras, trajectories, points_3d, camera_calibration_matrix)
     cameras = Camera.find_all_cameras(trajectories, cameras, points_3d, camera_calibration_matrix)
     
 
