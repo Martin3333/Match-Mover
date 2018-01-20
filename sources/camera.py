@@ -8,7 +8,6 @@ from scipy.optimize import least_squares
 import matplotlib.pyplot as plt
 from root_sift import RootSIFT
 
-
 R_ZERO = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
 
 
@@ -19,13 +18,34 @@ class Camera(object):
         self.T = T
 
     def P_from_RT(self):
+        RT = np.c_[self.R, self.T]
+        return np.dot(self.K, RT)
 
-        #print(np.dot(self.K, np.dot(self.R, np.array(self.T).T)))
-        #return np.dot(self.K, np.dot(self.R, self.T))
-        return cv2.sfm.projectionFromKRt(self.K, self.R, self.T)
+
     @property
     def r_vec(self):
         return cv2.Rodrigues(self.R)[0]
+
+    @staticmethod
+    def fundamentalFromProjections(P1, P2):
+        X = []
+        X.append(np.vstack((P1[1,:], P1[2,:])))
+        X.append(np.vstack((P1[2,:], P1[0,:])))
+        X.append(np.vstack((P1[0,:], P1[1,:])))
+
+        Y = []
+        Y.append(np.vstack((P2[1,:], P2[2,:])))
+        Y.append(np.vstack((P2[2,:], P2[0,:])))
+        Y.append(np.vstack((P2[0,:], P2[1,:])))
+
+        F = np.zeros((3,3))
+        for i in range(3):
+            for j in range(3):
+                F[i, j] = np.linalg.det(np.vstack((X[j], Y[i])))
+        return F
+
+
+
 
     @staticmethod
     def generate_video_frames(video_file):
@@ -57,7 +77,8 @@ class Camera(object):
         return frame_index
 
     @staticmethod
-    def calibrate(max_index, chess_board_rows, chess_board_columns,path=os.path.join("..", "resources", "video_frames")):
+    def calibrate(max_index, chess_board_rows, chess_board_columns,
+                  path=os.path.join("..", "resources", "video_frames")):
         # Termination criteria.
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
@@ -92,13 +113,12 @@ class Camera(object):
     def get_camera_pose(pts1, pts2, K):
         # Compute F.
         F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.RANSAC, param1=3.5)
-        #print(mask)
-        F = cv2.sfm.normalizeFundamental(F)
+        # print(mask)
+        F = F/np.linalg.norm(F)
         # Compute E.
         E = np.dot(np.dot(np.transpose(K), F), K)
         # Get R and T.
         _, R, T, _ = cv2.recoverPose(E, pts1, pts2, K)
-
 
         return R, T, mask
 
@@ -135,25 +155,25 @@ class Camera(object):
 
         # ================ Variant No. 1 ================ #
 
-        # Detect difference of Gaussian keypoints in the image.
-        detector = cv2.xfeatures2d.HarrisLaplaceFeatureDetector_create()
-        kps = detector.detect(image)
+        # # Detect difference of Gaussian keypoints in the image.
+        # detector = cv2.xfeatures2d.HarrisLaplaceFeatureDetector_create()
+        # kps = detector.detect(image)
 
-        # Extract RootSIFT descriptors.
-        rs = RootSIFT()
-        kps, descs = rs.compute(image, kps)
+        # # Extract RootSIFT descriptors.
+        # rs = RootSIFT()
+        # kps, descs = rs.compute(image, kps)
 
         # =============================================== #
 
         # ================ Variant No. 2 ================ #
 
         # Initialize FAST feature detector.
-        #fast = cv2.FastFeatureDetector_create(threshold=35)
-        #kps = fast.detect(image, None)
+        fast = cv2.FastFeatureDetector_create(threshold=35)
+        kps = fast.detect(image, None)
 
-        # Extract RootSift descriptors.
-        #rs = RootSIFT()
-        #kps, descs = rs.compute(image, kps)
+        #Extract RootSift descriptors.
+        rs = RootSIFT()
+        kps, descs = rs.compute(image, kps)
 
         # =============================================== #
 
@@ -169,36 +189,31 @@ class Camera(object):
 
         # Apply ratio test.
         good_matches = []
-        for m, n in matches:
-            if m.distance < 0.75 * n.distance:
-                good_matches.append([m])
+        for m in matches:
+            if m.distance < 0.75:
+                good_matches.append(m)
 
-        return good_matches
-
-
+        return matches
 
     @staticmethod
-    def find_keyframe_cameras(trajectories, K, start_frame=1, camera_z_offset=2000.0):
+    def find_keyframe_cameras(trajectories, K, start_frame=1, camera_z_offset=2000.0, min_kps=100):
 
         cameras = {start_frame: Camera(K, R_ZERO, (0.0, 0.0, camera_z_offset))}
         points_3d = {}
 
-        offset1, pts1, pts2, indices1 = Camera.find_frames_with_overlap(trajectories, start_frame, min_keypoints=200)
+        offset1, pts1, pts2, indices1 = Camera.find_frames_with_overlap(trajectories, start_frame, min_keypoints=min_kps*2)
 
         pts1 = np.int32(pts1)
         pts2 = np.int32(pts2)
 
-        #add to points 3D
-        R,T, mask = Camera.get_camera_pose(pts1, pts2, K)
+        # add to points 3D
+        R, T, mask = Camera.get_camera_pose(pts1, pts2, K)
         T[2] += camera_z_offset
 
         cameras[start_frame + offset1] = Camera(K, R, T)
 
-
-
-
         while True:
-            offset2, _, pts3, indices2 = Camera.find_frames_with_overlap(trajectories, start_frame, min_keypoints=100)
+            offset2, _, pts3, indices2 = Camera.find_frames_with_overlap(trajectories, start_frame, min_keypoints=min_kps)
             if start_frame + offset2 in cameras:
                 break
 
@@ -207,9 +222,9 @@ class Camera(object):
 
             P1 = cameras[start_frame].P_from_RT()
             P2 = cameras[start_frame + offset1].P_from_RT()
-            F = cv2.sfm.fundamentalFromProjections(P1, P2)
-            F = cv2.sfm.normalizeFundamental(F)
-
+            F = Camera.fundamentalFromProjections(P1, P2)
+            F = F/np.linalg.norm(F)
+            
             pts1, pts2 = cv2.correctMatches(F, np.array([pts1]), np.array([pts2]))
 
             object_points = []
@@ -218,15 +233,18 @@ class Camera(object):
                 object_points.append(ret)
 
             object_points = cv2.convertPointsFromHomogeneous(np.array(object_points))
-            ret, R, T, inliers = cv2.solvePnPRansac(object_points, np.array(pts3), K, (0,0,0,0), reprojectionError=20.0)
-            R,_ = cv2.Rodrigues(R)
-            cameras[start_frame+offset2] = Camera(K,R,T)
+            ret, R, T, inliers = cv2.solvePnPRansac(object_points, np.array(pts3), K, (0, 0, 0, 0),
+                                                    reprojectionError=20.0)
+            if not ret:
+                break;
+
+            R, _ = cv2.Rodrigues(R)
+            cameras[start_frame + offset2] = Camera(K, R, T)
 
 
-            for i in range(0,len(indices2)-1):
+            for i in range(0, len(indices2)):
                 if indices2[i] not in points_3d and i in inliers:
                     points_3d[indices2[i]] = object_points[i]
-
 
             start_frame += offset1
             offset1 = offset2 - offset1
@@ -240,16 +258,33 @@ class Camera(object):
             if frame not in cameras:
                 indices = [kp for kp in trajectories if frame in trajectories[kp] and kp in points_3d]
                 pts_frame = [trajectories[kp][frame] for kp in indices]
-                # if frame-1 in cameras:
-                #     ret, R, T, _ = cv2.solvePnPRansac(np.array([points_3d[kp] for kp in indices]), np.array(pts_frame), K, (0,0,0,0), cameras[frame-1].r_vec, cameras[frame-1].T, useExtrinsicGuess=True)
-                # else:
-                ret, R, T, _ = cv2.solvePnPRansac(np.array([points_3d[kp] for kp in indices]), np.array(pts_frame), K, (0,0,0,0), reprojectionError = 10.0)
-                R,_ = cv2.Rodrigues(R)
-                cameras[frame] = Camera(K,R,T)
+
+                ret, R, T, _ = cv2.solvePnPRansac(np.array([points_3d[kp] for kp in indices]), np.array(pts_frame), K,
+                                                  (0, 0, 0, 0), reprojectionError=10.0)
+                R, _ = cv2.Rodrigues(R)
+                cameras[frame] = Camera(K, R, T)
         return cameras
 
+    ## Filtering observations with high reprojection error, applied before bundle adjustment
+    @staticmethod
+    def filter_outliers(cameras, trajectories, points_3d, K, threshold = 100.0):
+        outliers = []
+        for c in cameras:
+            for p in points_3d:
+                if c not in trajectories[p]:
+                    continue
+                p2d = trajectories[p][c]
+                p3d = points_3d[p]
+                reprojected, _ = cv2.projectPoints(np.array([p3d]), cameras[c].R, cameras[c].T, K , (0, 0, 0, 0))
+                reprojected = (reprojected[0][0][0], reprojected[0][0][1])
 
-    #TODO: sparse and filter outliers
+                if np.sqrt((p2d[0]-reprojected[0])*(p2d[0]-reprojected[0]) + (p2d[1]-reprojected[1])*(p2d[1]-reprojected[1])) > threshold:
+                    outliers.append((p,c))
+        for o in outliers:
+            del trajectories[o[0]][o[1]]
+        return trajectories
+
+
     @staticmethod
     def bundle_adjustment(cameras, trajectories, points_3d, K):
         filtered_trajectories = {}
@@ -259,7 +294,8 @@ class Camera(object):
                 for frame in trajectories[p]:
                     if frame in cameras:
                         filtered_trajectories[p][frame] = trajectories[p][frame]
-        #print(filtered_trajectories)
+
+        filtered_trajectories = Camera.filter_outliers(cameras, filtered_trajectories, points_3d, K, threshold = 20.0)
 
         n_cameras = len(cameras.keys())
         n_points = len(points_3d.keys())
@@ -273,18 +309,13 @@ class Camera(object):
         camera_indices = [c for c in cameras.keys()]
         points_3d_params = np.array([p[0] for p in points_3d.values()])
 
-
-                #points2d.append(trajectories[point_indices[p]][camera_indices[c]])
-
-        
-
-        def fun(params, n_cameras, n_points, point_indices, camera_indices, points2d, K):
-            camera_params = params[:n_cameras*6].reshape((n_cameras, 6))
-            points_3d = params[n_cameras*6:].reshape((n_points, 3))
+        def fun(params, n_cameras, n_points, point_indices, camera_indices, trajectories, K):
+            camera_params = params[:n_cameras * 6].reshape((n_cameras, 6))
+            points_3d = params[n_cameras * 6:].reshape((n_points, 3))
             projected = []
             points2d = []
-            for c in range(0, n_cameras-1):
-                for p in range(0, n_points-1):
+            for c in range(0, n_cameras - 1):
+                for p in range(0, n_points - 1):
                     if camera_indices[c] not in trajectories[point_indices[p]]:
                         continue
 
@@ -292,33 +323,26 @@ class Camera(object):
                     p3d = points_3d[p]
                     R = camera_params[c][:3]
                     T = camera_params[c][3:]
-                    
-                    reprojected,_ = cv2.projectPoints(np.array([p3d]), R, T, K, (0,0,0,0))
+
+                    reprojected, _ = cv2.projectPoints(np.array([p3d]), R, T, K, (0, 0, 0, 0))
                     projected.append((reprojected[0][0][0], reprojected[0][0][1]))
 
             points2d = np.array(points2d)
             projected = np.array(projected)
 
             ret = list(map(lambda x: np.sqrt((x[0][0]-x[1][0])*(x[0][0]-x[1][0]) + (x[0][1]-x[1][1])*(x[0][1]-x[1][1])) ,list(zip(points2d, projected))))
-            # bla = [r for r in ret if r > 50.0]
-            # print(len(bla))
 
             return np.array(ret)
 
-
         x0 = np.hstack((camera_params.ravel(), points_3d_params.ravel()))
-
-        ## TODO: Filter Outliers
         first_res = fun(x0, n_cameras, n_points, point_indices, camera_indices, filtered_trajectories, K)
-        first_res = [r for r in first_res if r < 50.0]
-
 
         A = lil_matrix((len(first_res), n_cameras*6+n_points*3), dtype=int)
         #points2d = []
         ctr = 0
         for c in range(0, n_cameras-1):
             for p in range(0, n_points-1):
-                if camera_indices[c] not in trajectories[point_indices[p]]:
+                if camera_indices[c] not in filtered_trajectories[point_indices[p]]:
                     continue
                 for i in range(0,9):
                     A[ctr,c*6+i] = 1
@@ -326,8 +350,7 @@ class Camera(object):
                     A[ctr, n_cameras*6+p*3 + i]
                 ctr += 1
 
-        res = least_squares(fun, x0, args=(n_cameras, n_points, point_indices, camera_indices, filtered_trajectories, K), verbose=2, x_scale='jac', jac_sparsity=A, ftol=0.0000001)
-
+        res = least_squares(fun, x0, args=(n_cameras, n_points, point_indices, camera_indices, filtered_trajectories, K), verbose=2, x_scale='jac', jac_sparsity=A, ftol=0.00001)
         camera_params = res.x[:n_cameras*6].reshape((n_cameras,6))
         points_3d_params = res.x[n_cameras*6:].reshape((n_points,3))
 
@@ -342,11 +365,6 @@ class Camera(object):
             idx += 1
 
         return cameras, points_3d
-
-
-
-
-
 
 
 
@@ -423,3 +441,4 @@ class Camera(object):
         vcap.release()
 
         return trajectories
+
